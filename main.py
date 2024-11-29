@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta
 
-
 class Airplane:
     def __init__(self, name, capacity, fuel_capacity):
         if capacity <= 0:

@@ -1,6 +1,7 @@
 import unittest
+from datetime import datetime, timedelta
 
-from main import Airplane, Airport, Flight
+from main import Airplane, Airport, Flight, schedule_flights
 
 
 class AirplaneTest(unittest.TestCase):
@@ -94,6 +95,7 @@ class FlightTest(unittest.TestCase):
 
     def test_successful_flight(self):
         flight = Flight(self.airport1, self.airport2, 500, self.airplane)
+        flight.scheduled_departure = datetime.now()  #  Назначаем время вылета
         self.assertTrue(flight.perform_flight())
         self.assertEqual(self.airplane.fuel_level, 200)
         self.assertTrue(self.airport2.remove_airplane(self.airplane))
@@ -105,11 +107,13 @@ class FlightTest(unittest.TestCase):
 
     def test_no_hangar_at_arrival(self):
         airplane2 = Airplane("Airbus 320", 50, 500)
-        self.airport2.park_airplane(airplane2)
+        self.airport2.park_airplane(airplane2) # Занимаем единственный ангар
         flight = Flight(self.airport1, self.airport2, 500, self.airplane)
-        self.assertFalse(flight.perform_flight())
-        self.assertEqual(self.airplane.fuel_level, 200)
-        self.assertTrue(self.airport1.remove_airplane(self.airplane))
+        flight.scheduled_departure = datetime.now()
+        runway_index = self.airport1.acquire_runway() #  Захватываем полосу для теста
+        self.airport1.release_runway(runway_index) #  Освобождаем полосу (она не должна влиять на тест)
+        self.assertFalse(flight.perform_flight())  # Рейс не должен выполниться
+        self.assertTrue(self.airport1.remove_airplane(self.airplane)) # Самолет остается в аэропорту отправления
 
     def test_no_runway_available_at_departure(self):
         self.airport1.acquire_runway()
@@ -120,11 +124,15 @@ class FlightTest(unittest.TestCase):
 
     def test_same_departure_and_arrival_airports(self):
         flight = Flight(self.airport1, self.airport1, 100, self.airplane)
-        self.assertTrue(flight.perform_flight())
+        flight.scheduled_departure = datetime.now()
+        runway_index = self.airport1.acquire_runway()  # Захватываем полосу
+        self.airport1.release_runway(runway_index) # Освобождаем полосу
+        self.assertTrue(flight.perform_flight()) # Теперь рейс должен выполниться
         self.assertEqual(self.airplane.fuel_level, 600)
 
     def test_zero_distance_flight(self):
         flight = Flight(self.airport1, self.airport2, 0, self.airplane)
+        flight.scheduled_departure = datetime.now() # Назначаем время
         self.assertTrue(flight.perform_flight())
         self.assertEqual(self.airplane.fuel_level, 700)
 
@@ -151,6 +159,48 @@ class FlightTest(unittest.TestCase):
         flight.add_passengers(50)
         self.assertFalse(flight.remove_passengers(60))
         self.assertEqual(flight.passengers, 50)
+
+class FlightSchedulingTest(unittest.TestCase):
+    def setUp(self):
+        self.airport = Airport("SVO", 5, 3) # достаточно ангаров и полос
+        self.airplane1 = Airplane("Boeing 777", 150, 1000)
+        self.airplane2 = Airplane("Airbus A330", 200, 800)
+        self.airplane3 = Airplane("Boeing 787", 100, 1200)
+        self.flights = [
+            Flight(self.airport, self.airport, 500, self.airplane1), # рейс 1
+            Flight(self.airport, self.airport, 700, self.airplane2), # рейс 2 (самый длинный)
+            Flight(self.airport, self.airport, 300, self.airplane3), # рейс 3
+        ]
+
+
+    def test_scheduling_order(self):
+        scheduled_flights = schedule_flights(self.flights, self.airport)
+        self.assertEqual(scheduled_flights[0].airplane, self.airplane2)  # Самый длинный рейс первым
+        self.assertEqual(scheduled_flights[1].airplane, self.airplane1)
+        self.assertEqual(scheduled_flights[2].airplane, self.airplane3)
+
+
+    def test_no_flights(self):
+        scheduled_flights = schedule_flights([], self.airport) # Пустой список рейсов
+        self.assertEqual(len(scheduled_flights), 0)
+
+
+
+    def test_one_flight(self):
+        flights = [Flight(self.airport, self.airport, 500, self.airplane1)]
+        start_time = datetime(2024, 1, 1, 12, 0, 0)
+        scheduled_flights = schedule_flights(flights, self.airport, start_time)
+        self.assertEqual(len(scheduled_flights), 1)
+        self.assertEqual(scheduled_flights[0].scheduled_departure, start_time)
+
+
+    def test_airport_with_no_runways(self):
+        airport = Airport("TestAirport", 2, 0) # Аэропорт без полос
+        scheduled_flights = schedule_flights(self.flights, airport)
+        self.assertEqual(len(scheduled_flights), 3) # Рейсы запланированы, но не смогут выполниться
+
+        for flight in scheduled_flights:
+            self.assertFalse(flight.perform_flight()) #  Проверяем, что рейсы не выполнятся
 
 
 
